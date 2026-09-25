@@ -1,0 +1,10 @@
+/**
+ * Helper utilities for travel calculations and currency formatting
+ */
+export const formatCurrency = (amount, currency = 'INR') => {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount);
+};

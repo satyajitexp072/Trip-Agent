@@ -1,0 +1,9 @@
+export { Destination } from './Destination.js';
+export { TransportOption } from './TransportOption.js';
+export { AccommodationOption } from './AccommodationOption.js';
+export { ActivityOption } from './ActivityOption.js';
+export { JourneyItem } from './JourneyItem.js';
+export { User } from './User.js';
+export { SavedPreference } from './SavedPreference.js';
+export { Trip } from './Trip.js';
+export { TripBooking } from './TripBooking.js';

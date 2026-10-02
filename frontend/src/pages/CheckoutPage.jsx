@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTrip } from '../context/TripContext.jsx';
 import bookingService from '../services/bookingService.js';
@@ -25,10 +25,54 @@ import {
   Car,
   Award,
   Lock,
-  ChevronRight
+  ChevronRight,
+  RefreshCw
 } from 'lucide-react';
 
-export default function CheckoutPage() {
+class CheckoutErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('CheckoutPage ErrorBoundary caught:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-2xl mx-auto px-4 py-20 text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900">Something went wrong during checkout</h2>
+          <p className="text-xs text-slate-600 max-w-md mx-auto">
+            {this.state.error?.message || 'An unexpected rendering issue occurred.'}
+          </p>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-5 py-2.5 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 transition-colors"
+            >
+              Refresh Page
+            </button>
+            <Link
+              to="/trips"
+              className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 transition-colors"
+            >
+              Go to My Trips
+            </Link>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function CheckoutPageContent() {
   const { tripId } = useParams();
   const navigate = useNavigate();
   const { itinerary, intent, addConfirmedBooking } = useTrip();
@@ -68,6 +112,16 @@ export default function CheckoutPage() {
   // Processing stage animation checklist states
   const [processingStep, setProcessingStep] = useState(0);
 
+  // References for processing timers so they can be cleaned up on unmount
+  const timersRef = useRef([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach((t) => clearTimeout(t));
+      timersRef.current = [];
+    };
+  }, []);
+
   // Load or create session on mount
   useEffect(() => {
     let isMounted = true;
@@ -75,11 +129,12 @@ export default function CheckoutPage() {
       setLoading(true);
       setError('');
       try {
-        const data = await bookingService.createSession(tripId, itinerary, intent);
+        const rawData = await bookingService.createSession(tripId, itinerary, intent);
+        const data = rawData?.data || rawData;
         if (isMounted) {
           setSession(data);
           // If already confirmed (idempotency check), jump to confirmation screen
-          if (data.status === 'CONFIRMED') {
+          if (data?.status === 'CONFIRMED') {
             setStage('confirmed');
           }
         }
@@ -207,49 +262,53 @@ export default function CheckoutPage() {
         cardholderName: paymentMethod === 'CARD' ? cardData.cardholderName : 'UPI Traveler',
       });
 
+      // Clear any prior pending timers
+      timersRef.current.forEach((t) => clearTimeout(t));
+      timersRef.current = [];
+
       // Move to processing animation stage
       setStage('processing');
       setProcessingStep(0);
 
       // Trigger sequential confirmation animation
-      setTimeout(() => setProcessingStep(1), 700);  // Transport confirmed
-      setTimeout(() => setProcessingStep(2), 1500); // Accommodation confirmed
-      setTimeout(() => setProcessingStep(3), 2300); // Activities confirmed
-      setTimeout(() => setProcessingStep(4), 3100); // Finalized!
+      timersRef.current.push(setTimeout(() => setProcessingStep(1), 700));  // Transport confirmed
+      timersRef.current.push(setTimeout(() => setProcessingStep(2), 1500)); // Accommodation confirmed
+      timersRef.current.push(setTimeout(() => setProcessingStep(3), 2300)); // Activities confirmed
+      timersRef.current.push(setTimeout(() => setProcessingStep(4), 3100)); // Finalized!
 
       // Finalize booking on backend with complete itinerary snapshot
-      setTimeout(async () => {
+      const finalTimer = setTimeout(async () => {
         try {
           const snapshotData = {
             itinerary: itinerary,
-            tripTitle: itinerary?.tripTitle || `${session.destination} Journey`,
-            origin: session.origin,
-            destination: session.destination,
-            duration: session.duration,
-            travelers: session.travelers,
-            selectedBudgetTier: session.selectedBudgetTier,
-            totalCost: session.totalCost,
-            bookings: session.bookings,
+            tripTitle: itinerary?.tripTitle || `${session?.destination || 'Trip'} Journey`,
+            origin: session?.origin,
+            destination: session?.destination,
+            duration: session?.duration,
+            travelers: session?.travelers,
+            selectedBudgetTier: session?.selectedBudgetTier,
+            totalCost: session?.totalCost,
+            bookings: session?.bookings,
             bookingItems: [
               {
                 category: 'transport',
                 itemType: 'Flight',
-                provider: session.bookings?.transport?.provider,
-                title: session.bookings?.transport?.title,
-                price: session.bookings?.transport?.price || session.bookings?.transport?.cost,
+                provider: session?.bookings?.transport?.provider,
+                title: session?.bookings?.transport?.title,
+                price: session?.bookings?.transport?.price || session?.bookings?.transport?.cost,
                 status: 'CONFIRMED',
-                reference: session.bookings?.transport?.reference,
+                reference: session?.bookings?.transport?.reference,
               },
               {
                 category: 'accommodation',
                 itemType: 'Stay',
-                provider: session.bookings?.accommodation?.name,
-                title: session.bookings?.accommodation?.name,
-                price: session.bookings?.accommodation?.price || session.bookings?.accommodation?.cost,
+                provider: session?.bookings?.accommodation?.name,
+                title: session?.bookings?.accommodation?.name,
+                price: session?.bookings?.accommodation?.price || session?.bookings?.accommodation?.cost,
                 status: 'CONFIRMED',
-                reference: session.bookings?.accommodation?.reference,
+                reference: session?.bookings?.accommodation?.reference,
               },
-              ...(session.bookings?.activities || []).map((a) => ({
+              ...(session?.bookings?.activities || []).map((a) => ({
                 category: 'activity',
                 itemType: 'Activity',
                 provider: a.provider,
@@ -262,12 +321,18 @@ export default function CheckoutPage() {
             notes: 'Hackathon confirmed booking snapshot',
           };
 
-          const confirmed = await bookingService.confirmBooking(session.bookingId || session._id, snapshotData);
-          setSession(confirmed);
-          if (addConfirmedBooking) {
-            addConfirmedBooking(confirmed);
+          const rawConfirmed = await bookingService.confirmBooking(session.bookingId || session._id, snapshotData);
+          const confirmed = rawConfirmed?.data || rawConfirmed;
+
+          if (confirmed) {
+            setSession(confirmed);
+            if (addConfirmedBooking) {
+              addConfirmedBooking(confirmed);
+            }
+            setStage('confirmed');
+          } else {
+            throw new Error('Empty response received from confirmation endpoint.');
           }
-          setStage('confirmed');
         } catch (err) {
           console.error('Failed to confirm booking:', err);
           setError('Booking confirmation could not be finalized. Please retry.');
@@ -276,6 +341,8 @@ export default function CheckoutPage() {
           setPaymentSubmitting(false);
         }
       }, 3600);
+
+      timersRef.current.push(finalTimer);
     } catch (err) {
       console.error('Payment failed:', err);
       setError(err.message || 'Payment authorization failed. Please retry.');
@@ -1175,10 +1242,10 @@ export default function CheckoutPage() {
                     ✓ Booking Confirmed
                   </h2>
                   <p className="text-sm font-semibold text-emerald-800 mt-1">
-                    Your trip to {session.destination} is confirmed.
+                    Your trip to {session?.destination || 'Destination'} is confirmed.
                   </p>
                   <p className="text-xs text-slate-600 mt-0.5 max-w-lg mx-auto">
-                    {session.origin} → {session.destination} • {session.duration} Days • {session.travelers} Travelers
+                    {session?.origin || 'Origin'} → {session?.destination || 'Destination'} • {session?.duration || 4} Days • {session?.travelers || 2} Travelers
                   </p>
                 </div>
 
@@ -1186,9 +1253,9 @@ export default function CheckoutPage() {
                 <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
                   <div className="inline-flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-2xl">
                     <span className="text-xs text-slate-500 font-medium">Confirmation Number:</span>
-                    <span className="text-sm font-mono font-black text-emerald-800">{session.confirmationNumber || session.bookingId}</span>
+                    <span className="text-sm font-mono font-black text-emerald-800">{session?.confirmationNumber || session?.bookingId || 'TA-CONF'}</span>
                     <button
-                      onClick={() => handleCopy(session.confirmationNumber || session.bookingId, 'confirmation')}
+                      onClick={() => handleCopy(session?.confirmationNumber || session?.bookingId, 'confirmation')}
                       className="p-1 rounded-md text-slate-400 hover:text-slate-700"
                       title="Copy confirmation number"
                     >
@@ -1198,9 +1265,9 @@ export default function CheckoutPage() {
 
                   <div className="inline-flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-2xl">
                     <span className="text-xs text-slate-500 font-medium">Payment Reference:</span>
-                    <span className="text-sm font-mono font-black text-purple-800">{session.trackingRef || session.payment?.transactionId || 'PAY-DEMO'}</span>
+                    <span className="text-sm font-mono font-black text-purple-800">{session?.trackingRef || session?.payment?.transactionId || 'PAY-DEMO'}</span>
                     <button
-                      onClick={() => handleCopy(session.trackingRef || session.payment?.transactionId || 'PAY-DEMO', 'paymentRef')}
+                      onClick={() => handleCopy(session?.trackingRef || session?.payment?.transactionId || 'PAY-DEMO', 'paymentRef')}
                       className="p-1 rounded-md text-slate-400 hover:text-slate-700"
                       title="Copy payment reference"
                     >
@@ -1295,22 +1362,22 @@ export default function CheckoutPage() {
                     <div>
                       <span className="text-slate-500 block">Transaction ID</span>
                       <strong className="font-mono text-purple-900">
-                        {session.payment?.transactionId || 'TA-PAY-629143'}
+                        {session?.payment?.transactionId || session?.trackingRef || 'TA-PAY-629143'}
                       </strong>
                     </div>
                     <div>
                       <span className="text-slate-500 block">Amount Settled</span>
                       <strong className="text-slate-900 text-sm">
-                        ₹{session.totalCost?.toLocaleString('en-IN')}
+                        ₹{Number(session?.totalCost || session?.payment?.amount || 0).toLocaleString('en-IN')}
                       </strong>
                     </div>
                     <div>
                       <span className="text-slate-500 block">Payment Method</span>
-                      <strong className="text-slate-900">{session.payment?.method || 'CARD'}</strong>
+                      <strong className="text-slate-900">{session?.payment?.method || 'CARD'}</strong>
                     </div>
                     <div>
                       <span className="text-slate-500 block">Cardholder / Name</span>
-                      <strong className="text-slate-900">{session.payment?.cardholderName || 'Demo Traveler'}</strong>
+                      <strong className="text-slate-900">{session?.payment?.cardholderName || 'Demo Traveler'}</strong>
                     </div>
                   </div>
                 </div>
@@ -1364,7 +1431,7 @@ export default function CheckoutPage() {
                   <span>Live Booking Summary</span>
                 </h3>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-sky-50 text-sky-700">
-                  {session.selectedBudgetTier}
+                  {session?.selectedBudgetTier || 'Best Value'}
                 </span>
               </div>
 
@@ -1629,5 +1696,13 @@ export default function CheckoutPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CheckoutPage() {
+  return (
+    <CheckoutErrorBoundary>
+      <CheckoutPageContent />
+    </CheckoutErrorBoundary>
   );
 }

@@ -44,7 +44,7 @@ export const bookingService = {
       method: 'POST',
       body: JSON.stringify({ tripId, itinerary, intent }),
     });
-    return res.data;
+    return res?.data?.data || res?.data || res;
   },
 
   /**
@@ -52,7 +52,7 @@ export const bookingService = {
    */
   async getSession(sessionId) {
     const res = await apiRequest(`/bookings/session/${sessionId}`);
-    return res.data;
+    return res?.data?.data || res?.data || res;
   },
 
   /**
@@ -117,7 +117,7 @@ export const bookingService = {
       method: 'POST',
       body: JSON.stringify(snapshotData),
     });
-    return res?.data || res;
+    return res?.data?.data || res?.data || res;
   },
 
   /**
